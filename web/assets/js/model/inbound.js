@@ -472,54 +472,67 @@ class HTTPUpgradeStreamSettings extends XrayCommonClass {
     }
 }
 
+// Mirrors the inbound (server-side) view of Xray-core's SplitHTTPConfig
+// (infra/conf/transport_internet.go). Only fields the server actually
+// reads at runtime, plus the bidirectional fields the server enforces,
+// live here. Client-only fields (uplinkHTTPMethod, uplinkChunkSize,
+// noGRPCHeader, scMinPostsIntervalMs, xmux, downloadSettings) belong on
+// the outbound class instead.
+//
+// `headers` is technically client-only at runtime (xray's listener
+// doesn't read it) but we keep it here so the admin can set request
+// headers that get embedded into the share link's `extra` blob — the
+// client picks them up from there.
 class xHTTPStreamSettings extends XrayCommonClass {
     constructor(
+        // Bidirectional — must match between client and server
         path = '/',
         host = '',
-        headers = [],
-        scMaxBufferedPosts = 30,
-        scMaxEachPostBytes = "1000000",
-        scStreamUpServerSecs = "20-80",
-        noSSEHeader = false,
-        xPaddingBytes = "100-1000",
         mode = MODE_OPTION.AUTO,
+        xPaddingBytes = "100-1000",
         xPaddingObfsMode = false,
         xPaddingKey = '',
         xPaddingHeader = '',
         xPaddingPlacement = '',
         xPaddingMethod = '',
-        uplinkHTTPMethod = '',
         sessionPlacement = '',
         sessionKey = '',
         seqPlacement = '',
         seqKey = '',
         uplinkDataPlacement = '',
         uplinkDataKey = '',
-        uplinkChunkSize = 0,
+        scMaxEachPostBytes = "1000000",
+        // Server-side only
+        noSSEHeader = false,
+        scMaxBufferedPosts = 30,
+        scStreamUpServerSecs = "20-80",
+        serverMaxHeaderBytes = 0,
+        // URL-share only — embedded in the link's `extra` blob so clients
+        // pick them up; xray's listener ignores them at runtime.
+        headers = [],
     ) {
         super();
         this.path = path;
         this.host = host;
-        this.headers = headers;
-        this.scMaxBufferedPosts = scMaxBufferedPosts;
-        this.scMaxEachPostBytes = scMaxEachPostBytes;
-        this.scStreamUpServerSecs = scStreamUpServerSecs;
-        this.noSSEHeader = noSSEHeader;
-        this.xPaddingBytes = xPaddingBytes;
         this.mode = mode;
+        this.xPaddingBytes = xPaddingBytes;
         this.xPaddingObfsMode = xPaddingObfsMode;
         this.xPaddingKey = xPaddingKey;
         this.xPaddingHeader = xPaddingHeader;
         this.xPaddingPlacement = xPaddingPlacement;
         this.xPaddingMethod = xPaddingMethod;
-        this.uplinkHTTPMethod = uplinkHTTPMethod;
         this.sessionPlacement = sessionPlacement;
         this.sessionKey = sessionKey;
         this.seqPlacement = seqPlacement;
         this.seqKey = seqKey;
         this.uplinkDataPlacement = uplinkDataPlacement;
         this.uplinkDataKey = uplinkDataKey;
-        this.uplinkChunkSize = uplinkChunkSize;
+        this.scMaxEachPostBytes = scMaxEachPostBytes;
+        this.noSSEHeader = noSSEHeader;
+        this.scMaxBufferedPosts = scMaxBufferedPosts;
+        this.scStreamUpServerSecs = scStreamUpServerSecs;
+        this.serverMaxHeaderBytes = serverMaxHeaderBytes;
+        this.headers = headers;
     }
 
     addHeader(name, value) {
@@ -534,26 +547,25 @@ class xHTTPStreamSettings extends XrayCommonClass {
         return new xHTTPStreamSettings(
             json.path,
             json.host,
-            XrayCommonClass.toHeaders(json.headers),
-            json.scMaxBufferedPosts,
-            json.scMaxEachPostBytes,
-            json.scStreamUpServerSecs,
-            json.noSSEHeader,
-            json.xPaddingBytes,
             json.mode,
+            json.xPaddingBytes,
             json.xPaddingObfsMode,
             json.xPaddingKey,
             json.xPaddingHeader,
             json.xPaddingPlacement,
             json.xPaddingMethod,
-            json.uplinkHTTPMethod,
             json.sessionPlacement,
             json.sessionKey,
             json.seqPlacement,
             json.seqKey,
             json.uplinkDataPlacement,
             json.uplinkDataKey,
-            json.uplinkChunkSize,
+            json.scMaxEachPostBytes,
+            json.noSSEHeader,
+            json.scMaxBufferedPosts,
+            json.scStreamUpServerSecs,
+            json.serverMaxHeaderBytes,
+            XrayCommonClass.toHeaders(json.headers),
         );
     }
 
@@ -561,26 +573,25 @@ class xHTTPStreamSettings extends XrayCommonClass {
         return {
             path: this.path,
             host: this.host,
-            headers: XrayCommonClass.toV2Headers(this.headers, false),
-            scMaxBufferedPosts: this.scMaxBufferedPosts,
-            scMaxEachPostBytes: this.scMaxEachPostBytes,
-            scStreamUpServerSecs: this.scStreamUpServerSecs,
-            noSSEHeader: this.noSSEHeader,
-            xPaddingBytes: this.xPaddingBytes,
             mode: this.mode,
+            xPaddingBytes: this.xPaddingBytes,
             xPaddingObfsMode: this.xPaddingObfsMode,
             xPaddingKey: this.xPaddingKey,
             xPaddingHeader: this.xPaddingHeader,
             xPaddingPlacement: this.xPaddingPlacement,
             xPaddingMethod: this.xPaddingMethod,
-            uplinkHTTPMethod: this.uplinkHTTPMethod,
             sessionPlacement: this.sessionPlacement,
             sessionKey: this.sessionKey,
             seqPlacement: this.seqPlacement,
             seqKey: this.seqKey,
             uplinkDataPlacement: this.uplinkDataPlacement,
             uplinkDataKey: this.uplinkDataKey,
-            uplinkChunkSize: this.uplinkChunkSize,
+            scMaxEachPostBytes: this.scMaxEachPostBytes,
+            noSSEHeader: this.noSSEHeader,
+            scMaxBufferedPosts: this.scMaxBufferedPosts,
+            scStreamUpServerSecs: this.scStreamUpServerSecs,
+            serverMaxHeaderBytes: this.serverMaxHeaderBytes,
+            headers: XrayCommonClass.toV2Headers(this.headers, false),
         };
     }
 }
@@ -1523,26 +1534,39 @@ class Inbound extends XrayCommonClass {
         return this.clientStats;
     }
 
-    // Copy the xPadding* settings into the query-string of a vless/trojan/ss
-    // link. Without this, the admin's custom xPaddingBytes range and (in
-    // obfs mode) the custom xPaddingKey / xPaddingHeader / placement /
-    // method never reach the client — the client keeps xray / sing-box's
-    // internal defaults and the server rejects every handshake with
-    // `invalid padding (...) length: 0`.
-    //
-    // Two encodings are emitted so each client family can pick at least
-    // one up:
-    //   - x_padding_bytes=<range>       flat, for sing-box-family clients
-    //   - extra=<url-encoded-json>       full blob, for xray-core clients
-    //
-    // Fields are only included when they actually have a value, so a
-    // default inbound yields the same URL it did before this helper.
-    static applyXhttpPaddingToParams(xhttp, params) {
-        if (!xhttp) return;
-        if (typeof xhttp.xPaddingBytes === 'string' && xhttp.xPaddingBytes.length > 0) {
-            params.set("x_padding_bytes", xhttp.xPaddingBytes);
+    // Looks for a "host"-named entry in xhttp.headers and returns its value,
+    // or '' if not found. Used as a fallback when xhttp.host is empty so the
+    // share URL still carries a usable Host hint.
+    static xhttpHostFallback(xhttp) {
+        if (!xhttp || !Array.isArray(xhttp.headers)) return '';
+        for (const h of xhttp.headers) {
+            if (h && typeof h.name === 'string' && h.name.toLowerCase() === 'host') {
+                return h.value || '';
+            }
         }
+        return '';
+    }
+
+    // Build the JSON blob that goes into the URL's `extra` param (or, for
+    // VMess, into the base64-encoded link object). Carries ONLY the
+    // bidirectional fields from xray-core's SplitHTTPConfig — i.e. the
+    // ones the server enforces and the client must match. Strictly
+    // one-sided fields are excluded:
+    //
+    //   - server-only (noSSEHeader, scMaxBufferedPosts,
+    //     scStreamUpServerSecs, serverMaxHeaderBytes) — client wouldn't
+    //     read them, so emitting them just bloats the URL.
+    //   - client-only (headers, uplinkHTTPMethod, uplinkChunkSize,
+    //     noGRPCHeader, scMinPostsIntervalMs, xmux, downloadSettings) —
+    //     not on the inbound class at all; the client configures them
+    //     locally.
+    //
+    // Truthy-only guards keep default inbounds emitting the same compact
+    // URL they did before this helper grew.
+    static buildXhttpExtra(xhttp) {
+        if (!xhttp) return null;
         const extra = {};
+
         if (typeof xhttp.xPaddingBytes === 'string' && xhttp.xPaddingBytes.length > 0) {
             extra.xPaddingBytes = xhttp.xPaddingBytes;
         }
@@ -1554,26 +1578,73 @@ class Inbound extends XrayCommonClass {
                 }
             });
         }
-        if (Object.keys(extra).length > 0) {
-            params.set("extra", JSON.stringify(extra));
+
+        const stringFields = [
+            "sessionPlacement", "sessionKey",
+            "seqPlacement", "seqKey",
+            "uplinkDataPlacement", "uplinkDataKey",
+            "scMaxEachPostBytes",
+        ];
+        for (const k of stringFields) {
+            const v = xhttp[k];
+            if (typeof v === 'string' && v.length > 0) extra[k] = v;
         }
+
+        // Headers — emitted as the {name: value} map upstream's struct
+        // expects. The server runtime ignores this field, but the client
+        // (consuming the share link) honors it.
+        if (Array.isArray(xhttp.headers) && xhttp.headers.length > 0) {
+            const headersMap = {};
+            for (const h of xhttp.headers) {
+                if (h && h.name && h.name.toLowerCase() !== 'host') {
+                    headersMap[h.name] = h.value || '';
+                }
+            }
+            if (Object.keys(headersMap).length > 0) extra.headers = headersMap;
+        }
+
+        return Object.keys(extra).length > 0 ? extra : null;
+    }
+
+    // Inject the inbound-side xhttp config into URL query params for
+    // vless/trojan/ss links. Sets path/host/mode at top level (xray's
+    // Build() always lets these win over `extra`) and packs the
+    // bidirectional fields into a JSON `extra` param. Also writes the
+    // flat `x_padding_bytes` param sing-box-family clients understand.
+    //
+    // Without this, the admin's custom xPaddingBytes / sessionKey / etc.
+    // never reach the client and handshakes are silently rejected with
+    // `invalid padding (...) length: 0`.
+    static applyXhttpExtraToParams(xhttp, params) {
+        if (!xhttp) return;
+        params.set("path", xhttp.path);
+        const host = xhttp.host?.length > 0 ? xhttp.host : Inbound.xhttpHostFallback(xhttp);
+        params.set("host", host);
+        params.set("mode", xhttp.mode);
+
+        // Flat fallback for sing-box-family clients that don't read `extra`.
+        if (typeof xhttp.xPaddingBytes === 'string' && xhttp.xPaddingBytes.length > 0) {
+            params.set("x_padding_bytes", xhttp.xPaddingBytes);
+        }
+
+        const extra = Inbound.buildXhttpExtra(xhttp);
+        if (extra) params.set("extra", JSON.stringify(extra));
     }
 
     // VMess variant: VMess links are a base64-encoded JSON object, so we
-    // copy the padding fields directly into the JSON instead of building
-    // a query string.
-    static applyXhttpPaddingToObj(xhttp, obj) {
+    // copy the same bidirectional fields directly into the JSON instead
+    // of building a query string. (The base VMess link generator already
+    // sets net/type/path/host, so we only contribute the SplitHTTPConfig
+    // extra side here.)
+    static applyXhttpExtraToObj(xhttp, obj) {
         if (!xhttp || !obj) return;
         if (typeof xhttp.xPaddingBytes === 'string' && xhttp.xPaddingBytes.length > 0) {
             obj.x_padding_bytes = xhttp.xPaddingBytes;
         }
-        if (xhttp.xPaddingObfsMode === true) {
-            obj.xPaddingObfsMode = true;
-            ["xPaddingKey", "xPaddingHeader", "xPaddingPlacement", "xPaddingMethod"].forEach(k => {
-                if (typeof xhttp[k] === 'string' && xhttp[k].length > 0) {
-                    obj[k] = xhttp[k];
-                }
-            });
+        const extra = Inbound.buildXhttpExtra(xhttp);
+        if (!extra) return;
+        for (const [k, v] of Object.entries(extra)) {
+            obj[k] = v;
         }
     }
 
@@ -1839,7 +1910,7 @@ class Inbound extends XrayCommonClass {
             obj.path = xhttp.path;
             obj.host = xhttp.host?.length > 0 ? xhttp.host : this.getHeader(xhttp, 'host');
             obj.type = xhttp.mode;
-            Inbound.applyXhttpPaddingToObj(xhttp, obj);
+            Inbound.applyXhttpExtraToObj(xhttp, obj);
         }
 
         Inbound.applyFinalMaskToObj(this.stream.finalmask, obj);
@@ -1904,11 +1975,7 @@ class Inbound extends XrayCommonClass {
                 params.set("host", httpupgrade.host?.length > 0 ? httpupgrade.host : this.getHeader(httpupgrade, 'host'));
                 break;
             case "xhttp":
-                const xhttp = this.stream.xhttp;
-                params.set("path", xhttp.path);
-                params.set("host", xhttp.host?.length > 0 ? xhttp.host : this.getHeader(xhttp, 'host'));
-                params.set("mode", xhttp.mode);
-                Inbound.applyXhttpPaddingToParams(xhttp, params);
+                Inbound.applyXhttpExtraToParams(this.stream.xhttp, params);
                 break;
         }
 
@@ -2009,11 +2076,7 @@ class Inbound extends XrayCommonClass {
                 params.set("host", httpupgrade.host?.length > 0 ? httpupgrade.host : this.getHeader(httpupgrade, 'host'));
                 break;
             case "xhttp":
-                const xhttp = this.stream.xhttp;
-                params.set("path", xhttp.path);
-                params.set("host", xhttp.host?.length > 0 ? xhttp.host : this.getHeader(xhttp, 'host'));
-                params.set("mode", xhttp.mode);
-                Inbound.applyXhttpPaddingToParams(xhttp, params);
+                Inbound.applyXhttpExtraToParams(this.stream.xhttp, params);
                 break;
         }
 
@@ -2090,11 +2153,7 @@ class Inbound extends XrayCommonClass {
                 params.set("host", httpupgrade.host?.length > 0 ? httpupgrade.host : this.getHeader(httpupgrade, 'host'));
                 break;
             case "xhttp":
-                const xhttp = this.stream.xhttp;
-                params.set("path", xhttp.path);
-                params.set("host", xhttp.host?.length > 0 ? xhttp.host : this.getHeader(xhttp, 'host'));
-                params.set("mode", xhttp.mode);
-                Inbound.applyXhttpPaddingToParams(xhttp, params);
+                Inbound.applyXhttpExtraToParams(this.stream.xhttp, params);
                 break;
         }
 
