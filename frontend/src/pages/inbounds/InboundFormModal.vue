@@ -552,7 +552,7 @@ watch(
     <a-tabs v-if="inbound && dbForm" default-active-key="basic">
       <!-- ============================== BASICS ============================== -->
       <a-tab-pane key="basic" :tab="t('pages.xray.basicTemplate')">
-        <a-form :colon="false" :label-col="{ md: { span: 8 } }" :wrapper-col="{ md: { span: 14 } }">
+        <a-form :colon="false" :label-col="{ sm: { span: 8 } }" :wrapper-col="{ sm: { span: 14 } }">
           <a-form-item :label="t('enable')">
             <a-switch v-model:checked="dbForm.enable" />
           </a-form-item>
@@ -621,7 +621,7 @@ watch(
         <template v-if="isMultiUser">
           <a-collapse v-if="mode === 'add' && firstClient" default-active-key="0">
             <a-collapse-panel key="0" header="Client">
-              <a-form :colon="false" :label-col="{ md: { span: 8 } }" :wrapper-col="{ md: { span: 14 } }">
+              <a-form :colon="false" :label-col="{ sm: { span: 8 } }" :wrapper-col="{ sm: { span: 14 } }">
                 <a-form-item label="Enable">
                   <a-switch v-model:checked="firstClient.enable" />
                 </a-form-item>
@@ -729,8 +729,8 @@ watch(
         </template>
 
         <!-- VLess decryption / encryption -->
-        <a-form v-if="protocol === Protocols.VLESS" :colon="false" :label-col="{ md: { span: 8 } }"
-          :wrapper-col="{ md: { span: 14 } }" class="mt-12">
+        <a-form v-if="protocol === Protocols.VLESS" :colon="false" :label-col="{ sm: { span: 8 } }"
+          :wrapper-col="{ sm: { span: 14 } }" class="mt-12">
           <a-form-item label="Decryption">
             <a-input v-model:value="inbound.settings.decryption" />
           </a-form-item>
@@ -751,8 +751,8 @@ watch(
         </a-form>
 
         <!-- Shadowsocks shared fields (method/network/ivCheck) -->
-        <a-form v-if="protocol === Protocols.SHADOWSOCKS" :colon="false" :label-col="{ md: { span: 8 } }"
-          :wrapper-col="{ md: { span: 14 } }" class="mt-12">
+        <a-form v-if="protocol === Protocols.SHADOWSOCKS" :colon="false" :label-col="{ sm: { span: 8 } }"
+          :wrapper-col="{ sm: { span: 14 } }" class="mt-12">
           <a-form-item label="Encryption method">
             <a-select v-model:value="inbound.settings.method" @change="onSSMethodChange">
               <a-select-option v-for="(m, k) in SSMethods" :key="k" :value="m">{{ k }}</a-select-option>
@@ -779,7 +779,7 @@ watch(
 
         <!-- HTTP / Mixed accounts -->
         <a-form v-if="protocol === Protocols.HTTP || protocol === Protocols.MIXED" :colon="false"
-          :label-col="{ md: { span: 8 } }" :wrapper-col="{ md: { span: 14 } }" class="mt-12">
+          :label-col="{ sm: { span: 8 } }" :wrapper-col="{ sm: { span: 14 } }" class="mt-12">
           <a-form-item label="Accounts">
             <a-button size="small" @click="protocol === Protocols.HTTP
               ? inbound.settings.addAccount(new Inbound.HttpSettings.HttpAccount())
@@ -823,8 +823,8 @@ watch(
         </a-form>
 
         <!-- Tunnel -->
-        <a-form v-if="protocol === Protocols.TUNNEL" :colon="false" :label-col="{ md: { span: 8 } }"
-          :wrapper-col="{ md: { span: 14 } }" class="mt-12">
+        <a-form v-if="protocol === Protocols.TUNNEL" :colon="false" :label-col="{ sm: { span: 8 } }"
+          :wrapper-col="{ sm: { span: 14 } }" class="mt-12">
           <a-form-item label="Address">
             <a-input v-model:value="inbound.settings.address" />
           </a-form-item>
@@ -844,8 +844,8 @@ watch(
         </a-form>
 
         <!-- WireGuard -->
-        <a-form v-if="protocol === Protocols.WIREGUARD" :colon="false" :label-col="{ md: { span: 8 } }"
-          :wrapper-col="{ md: { span: 14 } }" class="mt-12">
+        <a-form v-if="protocol === Protocols.WIREGUARD" :colon="false" :label-col="{ sm: { span: 8 } }"
+          :wrapper-col="{ sm: { span: 14 } }" class="mt-12">
           <a-form-item>
             <template #label>
               Secret key
@@ -930,7 +930,7 @@ watch(
           </div>
 
           <a-form v-for="(fallback, idx) in inbound.settings.fallbacks" :key="idx" :colon="false"
-            :label-col="{ md: { span: 8 } }" :wrapper-col="{ md: { span: 14 } }">
+            :label-col="{ sm: { span: 8 } }" :wrapper-col="{ sm: { span: 14 } }">
             <a-divider style="margin: 0">
               Fallback {{ idx + 1 }}
               <DeleteOutlined class="danger-icon" @click="delFallback(idx)" />
@@ -1001,7 +1001,7 @@ watch(
       <!-- ============================== STREAM ============================== -->
       <a-tab-pane v-if="canEnableStream" key="stream"
         tab="Stream"><!-- "Stream" stays literal — it's a wire-format identifier -->
-        <a-form :colon="false" :label-col="{ md: { span: 8 } }" :wrapper-col="{ md: { span: 14 } }">
+        <a-form :colon="false" :label-col="{ sm: { span: 8 } }" :wrapper-col="{ sm: { span: 14 } }">
           <a-form-item v-if="protocol !== Protocols.HYSTERIA" label="Transmission">
             <a-select v-model:value="network" :style="{ width: '75%' }">
               <a-select-option value="tcp">TCP (RAW)</a-select-option>
@@ -1660,7 +1660,7 @@ watch(
 
       <!-- ============================== SNIFFING ============================== -->
       <a-tab-pane key="sniffing" tab="Sniffing"><!-- "Sniffing" stays literal — xray config term -->
-        <a-form :colon="false" :label-col="{ md: { span: 8 } }" :wrapper-col="{ md: { span: 14 } }">
+        <a-form :colon="false" :label-col="{ sm: { span: 8 } }" :wrapper-col="{ sm: { span: 14 } }">
           <a-form-item label="Enabled">
             <a-switch v-model:checked="inbound.sniffing.enabled" />
           </a-form-item>
