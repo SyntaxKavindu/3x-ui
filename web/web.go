@@ -6,7 +6,6 @@ import (
 	"context"
 	"crypto/tls"
 	"embed"
-	"html/template"
 	"io"
 	"io/fs"
 	"net"
@@ -24,6 +23,7 @@ import (
 	"github.com/mhsanaei/3x-ui/v2/web/locale"
 	"github.com/mhsanaei/3x-ui/v2/web/middleware"
 	"github.com/mhsanaei/3x-ui/v2/web/network"
+	"github.com/mhsanaei/3x-ui/v2/web/runtime"
 	"github.com/mhsanaei/3x-ui/v2/web/service"
 	"github.com/mhsanaei/3x-ui/v2/web/websocket"
 
@@ -34,23 +34,34 @@ import (
 	"github.com/robfig/cron/v3"
 )
 
-//go:embed assets
-var assetsFS embed.FS
-
-//go:embed html/*
-var htmlFS embed.FS
-
 //go:embed translation/*
 var i18nFS embed.FS
 
+// distFS embeds the Vite-built frontend (web/dist/). Every user-facing
+// HTML route is served straight out of this FS — the legacy Go
+// templates and `web/assets/` tree are gone post-Phase 8.
+//
+// `all:` is required so files whose names start with `_` are NOT
+// silently excluded by go:embed's default rules. Vite/rolldown emits
+// `_plugin-vue_export-helper-<hash>.js` for the @vitejs/plugin-vue
+// runtime; without `all:` the chunk would be missing from the binary
+// at runtime → 404 → blank-page boot failure.
+//
+//go:embed all:dist
+var distFS embed.FS
+
 var startTime = time.Now()
 
-type wrapAssetsFS struct {
+// wrapDistFS adapts the embedded `dist/` directory so it can be mounted
+// as the panel's `/assets/` static route. Vite emits its bundled JS/CSS
+// under `dist/assets/`; serving the FS rooted at `dist/assets` makes
+// `/assets/<hash>.js` URLs resolve directly.
+type wrapDistFS struct {
 	embed.FS
 }
 
-func (f *wrapAssetsFS) Open(name string) (fs.File, error) {
-	file, err := f.FS.Open("assets/" + name)
+func (f *wrapDistFS) Open(name string) (fs.File, error) {
+	file, err := f.FS.Open("dist/assets/" + name)
 	if err != nil {
 		return nil, err
 	}
@@ -81,14 +92,11 @@ func (f *wrapAssetsFileInfo) ModTime() time.Time {
 	return startTime
 }
 
-// EmbeddedHTML returns the embedded HTML templates filesystem for reuse by other servers.
-func EmbeddedHTML() embed.FS {
-	return htmlFS
-}
-
-// EmbeddedAssets returns the embedded assets filesystem for reuse by other servers.
-func EmbeddedAssets() embed.FS {
-	return assetsFS
+// EmbeddedDist returns the embedded Vite-built frontend filesystem.
+// Controllers serve their HTML out of this FS via the dist-page handler
+// installed in NewEngine().
+func EmbeddedDist() embed.FS {
+	return distFS
 }
 
 // Server represents the main web server for the 3x-ui panel with controllers, services, and scheduled jobs.
@@ -121,53 +129,6 @@ func NewServer() *Server {
 		ctx:    ctx,
 		cancel: cancel,
 	}
-}
-
-// getHtmlFiles walks the local `web/html` directory and returns a list of
-// template file paths. Used only in debug/development mode.
-func (s *Server) getHtmlFiles() ([]string, error) {
-	files := make([]string, 0)
-	dir, _ := os.Getwd()
-	err := fs.WalkDir(os.DirFS(dir), "web/html", func(path string, d fs.DirEntry, err error) error {
-		if err != nil {
-			return err
-		}
-		if d.IsDir() {
-			return nil
-		}
-		files = append(files, path)
-		return nil
-	})
-	if err != nil {
-		return nil, err
-	}
-	return files, nil
-}
-
-// getHtmlTemplate parses embedded HTML templates from the bundled `htmlFS`
-// using the provided template function map and returns the resulting
-// template set for production usage.
-func (s *Server) getHtmlTemplate(funcMap template.FuncMap) (*template.Template, error) {
-	t := template.New("").Funcs(funcMap)
-	err := fs.WalkDir(htmlFS, "html", func(path string, d fs.DirEntry, err error) error {
-		if err != nil {
-			return err
-		}
-
-		if d.IsDir() {
-			newT, err := t.ParseFS(htmlFS, path+"/*.html")
-			if err != nil {
-				// ignore
-				return nil
-			}
-			t = newT
-		}
-		return nil
-	})
-	if err != nil {
-		return nil, err
-	}
-	return t, nil
 }
 
 func (s *Server) isDirectHTTPSConfigured() bool {
@@ -239,45 +200,33 @@ func (s *Server) initRouter() (*gin.Engine, error) {
 		}
 	})
 
-	// init i18n
+	// init i18n — still used by backend strings (errors, log messages,
+	// SubPage menu entries) even though the Go template engine is gone.
 	err = locale.InitLocalizer(i18nFS, &s.settingService)
 	if err != nil {
 		return nil, err
 	}
 
-	// Apply locale middleware for i18n
-	i18nWebFunc := func(key string, params ...string) string {
-		return locale.I18n(locale.Web, key, params...)
-	}
-	// Register template functions before loading templates
-	funcMap := template.FuncMap{
-		"i18n": i18nWebFunc,
-	}
-	engine.SetFuncMap(funcMap)
 	engine.Use(locale.LocalizerMiddleware())
 
-	// set static files and template
+	// `/assets/` serves the Vite-built bundle. In dev we pull from disk
+	// so the Vite watcher's incremental rebuilds show up without
+	// restarting the binary; in prod we serve the embedded dist FS
+	// rooted at `dist/assets/`.
 	if config.IsDebug() {
-		// for development
-		files, err := s.getHtmlFiles()
-		if err != nil {
-			return nil, err
-		}
-		// Use the registered func map with the loaded templates
-		engine.LoadHTMLFiles(files...)
-		engine.StaticFS(basePath+"assets", http.FS(os.DirFS("web/assets")))
+		engine.StaticFS(basePath+"assets", http.FS(os.DirFS("web/dist/assets")))
 	} else {
-		// for production
-		template, err := s.getHtmlTemplate(funcMap)
-		if err != nil {
-			return nil, err
-		}
-		engine.SetHTMLTemplate(template)
-		engine.StaticFS(basePath+"assets", http.FS(&wrapAssetsFS{FS: assetsFS}))
+		engine.StaticFS(basePath+"assets", http.FS(&wrapDistFS{FS: distFS}))
 	}
 
 	// Apply the redirect middleware (`/xui` to `/panel`)
 	engine.Use(middleware.RedirectMiddleware(basePath))
+
+	// Hand the embedded `dist/` filesystem to the controller package
+	// before any HTML-serving controller is constructed. Phase 8
+	// cutover: every HTML route reads from web/dist/ instead of
+	// rendering a legacy template.
+	controller.SetDistFS(distFS)
 
 	g := engine.Group(basePath)
 
@@ -337,6 +286,13 @@ func (s *Server) startTask() {
 
 	// check client ips from log file every 10 sec
 	s.cron.AddJob("@every 10s", job.NewCheckClientIpJob())
+
+	// Probe every enabled remote node every 10 sec
+	s.cron.AddJob("@every 10s", job.NewNodeHeartbeatJob())
+
+	// Pull traffic + online-clients from every online node every 10 sec
+	// and merge absolute counters into the central DB.
+	s.cron.AddJob("@every 10s", job.NewNodeTrafficSyncJob())
 
 	// check client ips from log file every day
 	s.cron.AddJob("@daily", job.NewClearLogsJob())
@@ -409,6 +365,15 @@ func (s *Server) Start() (err error) {
 	}
 	s.cron = cron.New(cron.WithLocation(loc), cron.WithSeconds())
 	s.cron.Start()
+
+	// Wire the inbound-runtime manager once so InboundService can route
+	// add/update/delete to either the local xray or a remote node panel.
+	// The closures bridge into XrayService (which owns the running xray
+	// process state) without forcing the runtime package to import service.
+	runtime.SetManager(runtime.NewManager(runtime.LocalDeps{
+		APIPort:        func() int { return s.xrayService.GetXrayAPIPort() },
+		SetNeedRestart: func() { s.xrayService.SetToNeedRestart() },
+	}))
 
 	s.customGeoService = service.NewCustomGeoService()
 
