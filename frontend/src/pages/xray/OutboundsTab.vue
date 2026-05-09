@@ -128,8 +128,11 @@ function outboundAddresses(o) {
     case Protocols.Trojan:
       serverObj = o.settings?.servers;
       break;
-    case Protocols.DNS:
-      return [`${o.settings?.address || ''}:${o.settings?.port || ''}`];
+    case Protocols.DNS: {
+      const addr = o.settings?.rewriteAddress || o.settings?.address || '';
+      const port = o.settings?.rewritePort || o.settings?.port || '';
+      return addr || port ? [`${addr}:${port}`] : [];
+    }
     case Protocols.Wireguard:
       return (o.settings?.peers || []).map((p) => p.endpoint);
     default:
