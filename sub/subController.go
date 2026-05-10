@@ -9,8 +9,8 @@ import (
 	"strconv"
 	"strings"
 
-	webpkg "github.com/mhsanaei/3x-ui/v2/web"
-	"github.com/mhsanaei/3x-ui/v2/web/service"
+	webpkg "github.com/mhsanaei/3x-ui/v3/web"
+	"github.com/mhsanaei/3x-ui/v3/web/service"
 
 	"github.com/gin-gonic/gin"
 )

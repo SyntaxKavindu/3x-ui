@@ -12,7 +12,7 @@ package runtime
 import (
 	"context"
 
-	"github.com/mhsanaei/3x-ui/v2/database/model"
+	"github.com/mhsanaei/3x-ui/v3/database/model"
 )
 
 // Runtime is the live-engine adapter for one inbound's worth of

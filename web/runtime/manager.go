@@ -4,8 +4,8 @@ import (
 	"errors"
 	"sync"
 
-	"github.com/mhsanaei/3x-ui/v2/database"
-	"github.com/mhsanaei/3x-ui/v2/database/model"
+	"github.com/mhsanaei/3x-ui/v3/database"
+	"github.com/mhsanaei/3x-ui/v3/database/model"
 )
 
 // Manager is the entry point for service code that needs a Runtime.

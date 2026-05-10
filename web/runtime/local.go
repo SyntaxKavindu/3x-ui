@@ -6,8 +6,8 @@ import (
 	"errors"
 	"sync"
 
-	"github.com/mhsanaei/3x-ui/v2/database/model"
-	"github.com/mhsanaei/3x-ui/v2/xray"
+	"github.com/mhsanaei/3x-ui/v3/database/model"
+	"github.com/mhsanaei/3x-ui/v3/xray"
 )
 
 // LocalDeps wires the runtime to the panel's xray process and the
